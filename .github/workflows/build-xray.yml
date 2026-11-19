@@ -1,0 +1,61 @@
+name: Build Xray-core (Android)
+
+on:
+  workflow_dispatch:
+    inputs:
+      xray_version:
+        description: "Xray-core tag (e.g. v26.11.9)"
+        required: true
+        default: "v26.11.9"
+      go_version:
+        description: "Go version to build with (e.g. 1.27.4)"
+        required: true
+        default: "1.27.4"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Clone Xray-core
+        run: |
+          git clone --depth 1 --branch "${{ inputs.xray_version }}" \
+            https://github.com/XTLS/Xray-core xray-src
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache: false
+
+      - name: Show versions
+        run: |
+          go version
+          grep -m2 -E "^(go|toolchain) " xray-src/go.mod || true
+
+      - name: Build arm64-v8a (android)
+        working-directory: xray-src
+        run: |
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 \
+            go build -o ../out/arm64-v8a/libxray.so \
+            -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./main
+
+      - name: Build armeabi-v7a (linux static)
+        working-directory: xray-src
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+            go build -o ../out/armeabi-v7a/libxray.so \
+            -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./main
+
+      - name: Verify
+        run: |
+          file out/*/libxray.so
+          ls -l out/*/libxray.so
+          go version -m out/arm64-v8a/libxray.so | head -5 || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libxray-${{ inputs.xray_version }}-go${{ inputs.go_version }}
+          path: out/
